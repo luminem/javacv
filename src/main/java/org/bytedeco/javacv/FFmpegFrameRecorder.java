@@ -743,21 +743,14 @@ public class FFmpegFrameRecorder extends FrameRecorder {
             video_pkt.data(new BytePointer(picture));
             video_pkt.size(Loader.sizeof(AVPicture.class));
         } else {
-
-            BytePointer video_outbuf = null;
-            int video_outbuf_size;
             /* allocate output buffer */
             /* XXX: API change will be done */
             /* buffers passed into lav* can be allocated any way you prefer,
                as long as they're aligned enough for the architecture, and
                they're freed appropriately (such as using av_free for buffers
                allocated with av_malloc) */
-            video_outbuf_size = Math.max(256 * 1024, 8 * video_c.width() * video_c.height()); // a la ffmpeg.c
-            video_outbuf = new BytePointer(av_malloc(video_outbuf_size));
             /* encode the image */
             av_init_packet(video_pkt);
-            video_pkt.data(video_outbuf);
-            video_pkt.size(video_outbuf_size);
             picture.quality(video_c.global_quality());
             if ((ret = avcodec_encode_video2(video_c, video_pkt, image == null || image.length == 0 ? null : picture, got_video_packet)) < 0) {
                 throw new Exception("avcodec_encode_video2() error " + ret + ": Could not encode video packet.");
@@ -921,12 +914,8 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     boolean record(AVFrame frame) throws Exception {
         int ret;
         AVPacket audio_pkt = new AVPacket();
-        int audio_outbuf_size = 256 * 1024;
-        BytePointer audio_outbuf = new BytePointer(av_malloc(audio_outbuf_size));
 
         av_init_packet(audio_pkt);
-        audio_pkt.data(audio_outbuf);
-        audio_pkt.size(audio_outbuf_size);
         if ((ret = avcodec_encode_audio2(audio_c, audio_pkt, frame, got_audio_packet)) < 0) {
             throw new Exception("avcodec_encode_audio2() error " + ret + ": Could not encode audio packet.");
         }
