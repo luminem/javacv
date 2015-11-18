@@ -150,9 +150,6 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         this.sampleRate    = 44100;
 
         this.interleaved = true;
-
-        this.video_pkt = new AVPacket();
-        this.audio_pkt = new AVPacket();
     }
 
     public void release() throws Exception {
@@ -271,7 +268,6 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     private SwsContext img_convert_ctx;
     private SwrContext samples_convert_ctx;
     private int samples_channels, samples_format, samples_rate;
-    private AVPacket video_pkt, audio_pkt;
     private int[] got_video_packet, got_audio_packet;
 
     @Override public int getFrameNumber() {
@@ -776,6 +772,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
             }
         }
 
+        AVPacket video_pkt = new AVPacket();
         if ((oformat.flags() & AVFMT_RAWPICTURE) != 0) {
             if (image == null || image.length == 0) {
                 return false;
@@ -953,6 +950,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
 
     boolean record(AVFrame frame) throws Exception {
         int ret;
+        AVPacket audio_pkt = new AVPacket();
 
         av_init_packet(audio_pkt);
         audio_pkt.data(audio_outbuf);
