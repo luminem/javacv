@@ -85,6 +85,10 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     public static FFmpegFrameRecorder createDefault(File f, int w, int h)   throws Exception { return new FFmpegFrameRecorder(f, w, h); }
     public static FFmpegFrameRecorder createDefault(String f, int w, int h) throws Exception { return new FFmpegFrameRecorder(f, w, h); }
 
+    private static final int DEFAULT_MAX_VIDEO_PACKET_QUEUE_SIZE = 10;
+
+    private int maxVideoPacketQueueSize = DEFAULT_MAX_VIDEO_PACKET_QUEUE_SIZE;
+
     private static Exception loadingException = null;
     public static void tryLoad() throws Exception {
         if (loadingException != null) {
@@ -772,7 +776,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         }
 
         // thread safe
-        packetsToSend.add(video_pkt);
+        queuePacket(video_pkt);
 
         return image != null ? (video_pkt.flags() & AV_PKT_FLAG_KEY) != 0 : got_video_packet[0] != 0;
     }
@@ -911,6 +915,16 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         return samples != null ? frame.key_frame() != 0 : record((AVFrame)null);
     }
 
+    private void queuePacket(AVPacket packet) {
+        long nVideoPackets = packetsToSend.stream()
+                .filter(p -> p.stream_index() == video_st.index())
+                .count();
+        while (nVideoPackets > maxVideoPacketQueueSize) {
+            packetsToSend.clear();
+        }
+        packetsToSend.add(packet);
+    }
+
     boolean record(AVFrame frame) throws Exception {
         int ret;
         AVPacket audio_pkt = new AVPacket();
@@ -937,7 +951,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
 
         /* write the compressed frame in the media file */
         // thread safe
-        packetsToSend.add(audio_pkt);
+        queuePacket(audio_pkt);
 
         return true;
     }
