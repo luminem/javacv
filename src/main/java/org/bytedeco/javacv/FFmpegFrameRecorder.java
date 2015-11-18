@@ -61,6 +61,7 @@ import java.nio.ShortBuffer;
 import java.util.Map.Entry;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.DoublePointer;
@@ -261,6 +262,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     private SwrContext samples_convert_ctx;
     private int samples_channels, samples_format, samples_rate;
     private int[] got_video_packet, got_audio_packet;
+    private AtomicBoolean waitingForVideoFrameTypeI = new AtomicBoolean(false);
 
     @Override public int getFrameNumber() {
         return picture == null ? super.getFrameNumber() : (int)picture.pts();
@@ -921,8 +923,18 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                 .count();
         while (nVideoPackets > maxVideoPacketQueueSize) {
             packetsToSend.clear();
+            // We now discard everything until we find a frame of type I
+            waitingForVideoFrameTypeI.set(true);
         }
-        packetsToSend.add(packet);
+        if (waitingForVideoFrameTypeI.get()) {
+            if ((packet.flags() & AV_PKT_FLAG_KEY) > 0) {
+                packetsToSend.add(packet);
+                waitingForVideoFrameTypeI.set(false);
+            }
+            // else just ignore this packet
+        } else {
+            packetsToSend.add(packet);
+        }
     }
 
     boolean record(AVFrame frame) throws Exception {
