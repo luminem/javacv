@@ -935,14 +935,14 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         if (waitingForVideoFrameTypeI.get()) {
             if ((packet.flags() & AV_PKT_FLAG_KEY) > 0) {
                 waitingForVideoFrameTypeI.set(false);
-                long oldOffset = timestampOffset.get();
-                timestampOffset.set(oldOffset + packet.pts() - lastTimestamp.get());
+                System.out.println("UPDATE OFFSET. Packet duration: " + packet.duration());
+                timestampOffset.set(lastTimestamp.get() + packet.duration() - packet.pts());
                 queuePacket(packet);
             }
             // else just ignore this packet
         } else {
-            packet.pts(packet.pts() - timestampOffset.get());
-            packet.dts(packet.dts() - timestampOffset.get());
+            packet.pts(packet.pts() + timestampOffset.get());
+            packet.dts(packet.dts() + timestampOffset.get());
             packetsToSend.add(packet);
         }
     }
