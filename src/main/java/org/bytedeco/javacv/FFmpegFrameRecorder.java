@@ -179,10 +179,6 @@ public class FFmpegFrameRecorder extends FrameRecorder {
             av_frame_free(tmp_picture);
             tmp_picture = null;
         }
-        if (video_outbuf != null) {
-            av_free(video_outbuf);
-            video_outbuf = null;
-        }
         if (frame != null) {
             av_frame_free(frame);
             frame = null;
@@ -192,10 +188,6 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                 av_free(samples_out[i].position(0));
             }
             samples_out = null;
-        }
-        if (audio_outbuf != null) {
-            av_free(audio_outbuf);
-            audio_outbuf = null;
         }
         if (video_st != null && video_st.metadata() != null) {
             av_dict_free(video_st.metadata());
@@ -250,15 +242,11 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     private String filename;
     private AVFrame picture, tmp_picture;
     private BytePointer picture_buf;
-    private BytePointer video_outbuf;
-    private int video_outbuf_size;
     private AVFrame frame;
     private Pointer[] samples_in;
     private BytePointer[] samples_out;
     private PointerPointer samples_in_ptr;
     private PointerPointer samples_out_ptr;
-    private BytePointer audio_outbuf;
-    private int audio_outbuf_size;
     private int audio_input_frame_size;
     private AVOutputFormat oformat;
     private AVFormatContext oc;
@@ -296,6 +284,10 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                             // this should signal the end of the stream
                             return;
                         }
+                        BytePointer audio_outbuf = packet.data();
+                        if (audio_outbuf != null) {
+                            av_free(audio_outbuf);
+                        }
                     }
                 } catch (InterruptedException ex) {
                     // not sure what to do here
@@ -316,8 +308,6 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         tmp_picture = null;
         picture_buf = null;
         frame = null;
-        video_outbuf = null;
-        audio_outbuf = null;
         oc = null;
         video_c = null;
         audio_c = null;
@@ -552,18 +542,6 @@ public class FFmpegFrameRecorder extends FrameRecorder {
             }
             av_dict_free(options);
 
-            video_outbuf = null;
-            if ((oformat.flags() & AVFMT_RAWPICTURE) == 0) {
-                /* allocate output buffer */
-                /* XXX: API change will be done */
-                /* buffers passed into lav* can be allocated any way you prefer,
-                   as long as they're aligned enough for the architecture, and
-                   they're freed appropriately (such as using av_free for buffers
-                   allocated with av_malloc) */
-                video_outbuf_size = Math.max(256 * 1024, 8 * video_c.width() * video_c.height()); // a la ffmpeg.c
-                video_outbuf = new BytePointer(av_malloc(video_outbuf_size));
-            }
-
             /* allocate the encoded raw picture */
             if ((picture = av_frame_alloc()) == null) {
                 release();
@@ -606,27 +584,8 @@ public class FFmpegFrameRecorder extends FrameRecorder {
             }
             av_dict_free(options);
 
-            audio_outbuf_size = 256 * 1024;
-            audio_outbuf = new BytePointer(av_malloc(audio_outbuf_size));
+            audio_input_frame_size = audio_c.frame_size();
 
-            /* ugly hack for PCM codecs (will be removed ASAP with new PCM
-               support to compute the input frame size in samples */
-            if (audio_c.frame_size() <= 1) {
-                audio_outbuf_size = FF_MIN_BUFFER_SIZE;
-                audio_input_frame_size = audio_outbuf_size / audio_c.channels();
-                switch (audio_c.codec_id()) {
-                    case AV_CODEC_ID_PCM_S16LE:
-                    case AV_CODEC_ID_PCM_S16BE:
-                    case AV_CODEC_ID_PCM_U16LE:
-                    case AV_CODEC_ID_PCM_U16BE:
-                        audio_input_frame_size >>= 1;
-                        break;
-                    default:
-                        break;
-                }
-            } else {
-                audio_input_frame_size = audio_c.frame_size();
-            }
             //int bufferSize = audio_input_frame_size * audio_c.bits_per_raw_sample()/8 * audio_c.channels();
             int planes = av_sample_fmt_is_planar(audio_c.sample_fmt()) != 0 ? (int)audio_c.channels() : 1;
             int data_size = av_samples_get_buffer_size((IntPointer)null, audio_c.channels(),
@@ -784,6 +743,17 @@ public class FFmpegFrameRecorder extends FrameRecorder {
             video_pkt.data(new BytePointer(picture));
             video_pkt.size(Loader.sizeof(AVPicture.class));
         } else {
+
+            BytePointer video_outbuf = null;
+            int video_outbuf_size;
+            /* allocate output buffer */
+            /* XXX: API change will be done */
+            /* buffers passed into lav* can be allocated any way you prefer,
+               as long as they're aligned enough for the architecture, and
+               they're freed appropriately (such as using av_free for buffers
+               allocated with av_malloc) */
+            video_outbuf_size = Math.max(256 * 1024, 8 * video_c.width() * video_c.height()); // a la ffmpeg.c
+            video_outbuf = new BytePointer(av_malloc(video_outbuf_size));
             /* encode the image */
             av_init_packet(video_pkt);
             video_pkt.data(video_outbuf);
@@ -951,6 +921,8 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     boolean record(AVFrame frame) throws Exception {
         int ret;
         AVPacket audio_pkt = new AVPacket();
+        int audio_outbuf_size = 256 * 1024;
+        BytePointer audio_outbuf = new BytePointer(av_malloc(audio_outbuf_size));
 
         av_init_packet(audio_pkt);
         audio_pkt.data(audio_outbuf);
