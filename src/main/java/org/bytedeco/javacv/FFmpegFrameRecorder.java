@@ -62,6 +62,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.DoublePointer;
@@ -263,6 +264,8 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     private int samples_channels, samples_format, samples_rate;
     private int[] got_video_packet, got_audio_packet;
     private AtomicBoolean waitingForVideoFrameTypeI = new AtomicBoolean(false);
+    private AtomicLong lastTimestamp = new AtomicLong(-1);
+    private AtomicLong timestampOffset = new AtomicLong(0);
 
     @Override public int getFrameNumber() {
         return picture == null ? super.getFrameNumber() : (int)picture.pts();
@@ -285,6 +288,9 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                 try {
                     while (true) {
                         AVPacket packet = packetsToSend.take();
+                        if (packet.stream_index() == video_st.index()) {
+                            lastTimestamp.set(packet.pts());
+                        }
                         av_interleaved_write_frame(oc, packet);
                         if (packet == null) {
                             // this should signal the end of the stream
@@ -928,11 +934,15 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         }
         if (waitingForVideoFrameTypeI.get()) {
             if ((packet.flags() & AV_PKT_FLAG_KEY) > 0) {
-                packetsToSend.add(packet);
                 waitingForVideoFrameTypeI.set(false);
+                long oldOffset = timestampOffset.get();
+                timestampOffset.set(oldOffset + packet.pts() - lastTimestamp.get());
+                queuePacket(packet);
             }
             // else just ignore this packet
         } else {
+            packet.pts(packet.pts() - timestampOffset.get());
+            packet.dts(packet.dts() - timestampOffset.get());
             packetsToSend.add(packet);
         }
     }
