@@ -928,7 +928,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         long nVideoPackets = packetsToSend.stream()
                 .filter(p -> p.isPresent() && p.get().stream_index() == video_st.index())
                 .count();
-        while (nVideoPackets > maxVideoPacketQueueSize) {
+        if (nVideoPackets > maxVideoPacketQueueSize) {
             packetsToSend.clear();
             // We now discard everything until we find a frame of type I
             waitingForVideoFrameTypeI.set(true);
