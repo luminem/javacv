@@ -59,6 +59,7 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -122,7 +123,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         } catch (Exception ex) { }
     }
 
-    private BlockingQueue<AVPacket> packetsToSend = new LinkedBlockingDeque<>();
+    private BlockingQueue<Optional<AVPacket>> packetsToSend = new LinkedBlockingDeque<>();
 
     public FFmpegFrameRecorder(File file, int audioChannels) {
         this(file, 0, 0, audioChannels);
@@ -287,16 +288,16 @@ public class FFmpegFrameRecorder extends FrameRecorder {
             public void run() {
                 try {
                     while (true) {
-                        AVPacket packet = packetsToSend.take();
-                        if (packet.stream_index() == video_st.index()) {
-                            lastTimestamp.set(packet.pts());
-                        }
-                        av_interleaved_write_frame(oc, packet);
-                        if (packet == null) {
-                            // this should signal the end of the stream
+                        Optional<AVPacket> packet = packetsToSend.take();
+                        if (!packet.isPresent()) {
+                            av_interleaved_write_frame(oc, null);
                             return;
                         }
-                        BytePointer audio_outbuf = packet.data();
+                        if (packet.get().stream_index() == video_st.index()) {
+                            lastTimestamp.set(packet.get().pts());
+                        }
+                        av_interleaved_write_frame(oc, packet.get());
+                        BytePointer audio_outbuf = packet.get().data();
                         if (audio_outbuf != null) {
                             av_free(audio_outbuf);
                         }
@@ -654,7 +655,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                 while (video_st != null && recordImage(0, 0, 0, 0, 0, AV_PIX_FMT_NONE, (Buffer[])null));
                 while (audio_st != null && recordSamples(0, 0, (Buffer[])null));
 
-                packetsToSend.add(null);
+                packetsToSend.add(Optional.empty());
 
                 /* write the trailer, if any */
                 av_write_trailer(oc);
@@ -925,7 +926,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
 
     private void queuePacket(AVPacket packet) {
         long nVideoPackets = packetsToSend.stream()
-                .filter(p -> p.stream_index() == video_st.index())
+                .filter(p -> p.isPresent() && p.get().stream_index() == video_st.index())
                 .count();
         while (nVideoPackets > maxVideoPacketQueueSize) {
             packetsToSend.clear();
@@ -943,7 +944,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         } else {
             packet.pts(packet.pts() + timestampOffset.get());
             packet.dts(packet.dts() + timestampOffset.get());
-            packetsToSend.add(packet);
+            packetsToSend.add(Optional.of(packet));
         }
     }
 
