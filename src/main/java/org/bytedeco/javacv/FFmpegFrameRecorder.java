@@ -662,6 +662,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                 }
                 if (senderThread.isAlive()) {
                     System.err.println("Sender thread is still alive...");
+                    senderThread.stop();
                 }
 
                 /* write the trailer, if any */
