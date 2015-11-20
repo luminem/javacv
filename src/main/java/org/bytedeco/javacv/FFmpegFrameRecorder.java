@@ -265,8 +265,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     private int samples_channels, samples_format, samples_rate;
     private int[] got_video_packet, got_audio_packet;
     private AtomicBoolean waitingForVideoFrameTypeI = new AtomicBoolean(false);
-    private AtomicLong lastTimestamp = new AtomicLong(-1);
-    private AtomicLong timestampOffset = new AtomicLong(0);
+    private Thread senderThread;
 
     @Override public int getFrameNumber() {
         return picture == null ? super.getFrameNumber() : (int)picture.pts();
@@ -284,7 +283,7 @@ public class FFmpegFrameRecorder extends FrameRecorder {
     }
 
     private void startSenderThread() {
-        new Thread(new Runnable() {
+        senderThread = new Thread(new Runnable() {
             public void run() {
                 try {
                     while (true) {
@@ -292,9 +291,6 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                         if (!packet.isPresent()) {
                             av_interleaved_write_frame(oc, null);
                             return;
-                        }
-                        if (packet.get().stream_index() == video_st.index()) {
-                            lastTimestamp.set(packet.get().pts());
                         }
                         av_interleaved_write_frame(oc, packet.get());
                         BytePointer audio_outbuf = packet.get().data();
@@ -306,7 +302,8 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                     // not sure what to do here
                 }
             }
-        }).start();
+        });
+        senderThread.start();
     }
 
     public void start() throws Exception {
@@ -648,6 +645,8 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         av_dict_free(options);
     }
 
+    private static final int WAIT_TIME_FOR_SENDER_THREAD_DEATH = 500;
+
     public void stop() throws Exception {
         if (oc != null) {
             try {
@@ -656,6 +655,14 @@ public class FFmpegFrameRecorder extends FrameRecorder {
                 while (audio_st != null && recordSamples(0, 0, (Buffer[])null));
 
                 packetsToSend.add(Optional.empty());
+                try {
+                    senderThread.join(WAIT_TIME_FOR_SENDER_THREAD_DEATH);
+                } catch (InterruptedException e) {
+                    // nothing to do
+                }
+                if (senderThread.isAlive()) {
+                    System.err.println("Sender thread is still alive...");
+                }
 
                 /* write the trailer, if any */
                 av_write_trailer(oc);
@@ -936,14 +943,10 @@ public class FFmpegFrameRecorder extends FrameRecorder {
         if (waitingForVideoFrameTypeI.get()) {
             if ((packet.flags() & AV_PKT_FLAG_KEY) > 0) {
                 waitingForVideoFrameTypeI.set(false);
-                System.out.println("UPDATE OFFSET. Packet duration: " + packet.duration());
-                timestampOffset.set(lastTimestamp.get() + packet.duration() - packet.pts());
                 queuePacket(packet);
             }
             // else just ignore this packet
         } else {
-            packet.pts(packet.pts() + timestampOffset.get());
-            packet.dts(packet.dts() + timestampOffset.get());
             packetsToSend.add(Optional.of(packet));
         }
     }
